@@ -1,9 +1,8 @@
-name: Natural Comments
+name: NaturalComments
 module: skills.natural_comments.main
 category: general # Or maybe communication? User can change.
 description:
-  en: Proactively comments on the conversation or surroundings based on silence, history, and screen content.
-  de: Kommentiert proaktiv das Gespräch oder die Umgebung basierend auf Stille, Verlauf und Bildschirminhalt. # Needs review by native speaker
+  en: Proactively comments on the conversation or surroundings based on silence, history, and screen content. # Needs review by native speaker
 examples:
   - question:
       en: (User is silent for a while after discussing travel)
