@@ -1,0 +1,77 @@
+name: Natural Comments
+module: skills.natural_comments.main
+category: general # Or maybe communication? User can change.
+description:
+  en: Proactively comments on the conversation or surroundings based on silence, history, and screen content.
+  de: Kommentiert proaktiv das Gespräch oder die Umgebung basierend auf Stille, Verlauf und Bildschirminhalt. # Needs review by native speaker
+examples:
+  - question:
+      en: (User is silent for a while after discussing travel)
+    answer:
+      en: Speaking of travel, that bridge you just drove over in the game looked impressive!
+  - question:
+      en: (User is silent for a while after talking about Python)
+    answer:
+      en: Just thinking about that Python problem we discussed, maybe using a generator expression could simplify the loop?
+  - question:
+      en: Turn on comments
+    answer:
+      en: Natural comments are now turned on.
+  - question:
+      en: Turn off comments
+    answer:
+      en: Natural comments are now turned off.
+  - question:
+      en: What is the natural comment status?
+    answer:
+      en: Natural comments are currently turned off.
+
+custom_properties:
+  - id: min_silence_threshold_seconds
+    name: Min Silence Threshold (seconds)
+    hint: Minimum time the user needs to be silent before the skill considers commenting.
+    value: 60
+    required: true
+    property_type: number
+  - id: max_silence_threshold_seconds
+    name: Max Silence Threshold (seconds)
+    hint: Maximum time the user needs to be silent. Comment triggers randomly between Min and Max.
+    value: 180
+    required: true
+    property_type: number
+  - id: max_proactive_messages
+    name: Max Proactive Messages
+    hint: Maximum number of comments the skill will make without user interaction before stopping. Resets on user message.
+    value: 3
+    required: true
+    property_type: number
+  - id: vision_enabled
+    name: Enable Vision
+    hint: Allow the skill to take screenshots for context.
+    value: False
+    required: true
+    property_type: boolean
+  - id: add_comments_to_history
+    name: Add Comments to History
+    hint: Add the skill's proactive comments to the main conversation history (allows discussing them).
+    value: True
+    required: true
+    property_type: boolean
+  - id: auto_start
+    name: Start Automatically
+    hint: Automatically start monitoring for comments when Wingman starts.
+    value: False
+    required: true
+    property_type: boolean
+  - id: custom_system_prompt
+    name: Custom System Prompt (Optional)
+    hint: Override the default instructions given to the AI for generating comments. Leave empty to use the default behavior.
+    value: ""
+    required: false
+    property_type: textarea
+  - id: vision_display_to_capture
+    name: Vision Display to Capture
+    hint: Which display number to capture for screenshots (1 = primary).
+    value: 1
+    required: true
+    property_type: number 
