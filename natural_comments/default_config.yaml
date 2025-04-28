@@ -62,6 +62,12 @@ custom_properties:
     value: False
     required: true
     property_type: boolean
+  - id: allow_comments_without_history
+    name: Allow Comments Without History (Narrator Mode)
+    hint: If true and Vision is enabled, allow generating comments based only on the screen when conversation history is empty.
+    value: False
+    required: true
+    property_type: boolean
   - id: custom_system_prompt
     name: System Prompt
     hint: The system prompt used to instruct the AI. Modify this to change the comment generation behavior.

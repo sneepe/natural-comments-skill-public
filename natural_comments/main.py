@@ -42,6 +42,7 @@ class NaturalComments(Skill):
         self.add_comments_to_history: bool = True
         self.custom_system_prompt: Optional[str] = None
         self.auto_start: bool = True # Added
+        self.allow_comments_without_history: bool = False # Added for narrator mode
 
         # Internal state
         self.last_message_time: float = time.time() # Track time of last message (user or assistant)
@@ -96,6 +97,13 @@ class NaturalComments(Skill):
         
         if not isinstance(self.auto_start, bool): # Added
             errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Start Automatically must be a boolean.")) # Added
+
+        # Added: Narrator mode setting
+        narrator_mode = self.retrieve_custom_property_value("allow_comments_without_history", errors)
+        if narrator_mode is not None:
+            self.allow_comments_without_history = narrator_mode
+        if not isinstance(self.allow_comments_without_history, bool):
+            errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Allow Comments Without History must be a boolean."))
 
         # Perform validation checks on the potentially updated values
         if not isinstance(self.min_silence_threshold_seconds, int) or self.min_silence_threshold_seconds <= 0:
@@ -307,10 +315,13 @@ class NaturalComments(Skill):
                         # Skip commenting if a new message was just detected this cycle
                         if not new_message_detected_this_cycle:
                             # --- Potentially Take Screenshot --- # 
+                            # Take screenshot ONLY if general vision is enabled
+                            screenshot_data = None # Initialize
                             if self.vision_enabled:
                                 screenshot_data = await self._take_screenshot()
                             
                             # --- Generate Comment --- #
+                            # Pass potential screenshot data (might be None)
                             await self._generate_proactive_comment(screenshot_data)
                     # else: Max messages reached, do nothing until reset
                 
@@ -342,9 +353,31 @@ class NaturalComments(Skill):
                  await self.printr.print_async(f"{self.name}: Error processing conversation history: {hist_err}", color=LogType.WARNING)
                  return
             
-            if not history:
-                # If no history, we cannot make a relevant comment based on it.
+            # --- Check if we can proceed based on history and Narrator Mode --- #
+            if not history and not self.allow_comments_without_history:
+                # History is empty AND Narrator Mode is OFF - cannot comment yet.
+                if self.settings.debug_mode:
+                    await self.printr.print_async(f"{self.name}: No history and Narrator Mode OFF. Skipping comment.", color=LogType.INFO)
                 return
+            
+            # --- Determine History Text --- #
+            if not history:
+                 # Narrator Mode is ON (or history wasn't empty), proceed with placeholder
+                 history_text = "(No previous conversation history)"
+                 if self.settings.debug_mode:
+                     await self.printr.print_async(f"{self.name}: No history, proceeding due to Narrator Mode ON.", color=LogType.INFO)
+            else:
+                # History exists
+                history_text = "\n".join([
+                    f"{getattr(msg, 'role', 'unknown')}: {getattr(msg, 'content', '')}" 
+                    for msg in history 
+                    if isinstance(getattr(msg, 'content', None), str)
+                ])
+            
+            # --- Determine if Screenshot should be used (independent of Narrator Mode) --- #
+            use_screenshot_in_prompt = self.vision_enabled and screenshot_base64
+            if self.settings.debug_mode and not use_screenshot_in_prompt and self.vision_enabled and not screenshot_base64:
+                 await self.printr.print_async(f"{self.name}: Vision enabled but no screenshot data available/failed.", color=LogType.INFO)
 
             # --- Build Prompt --- #
             # Use custom prompt if provided, otherwise use refined default
@@ -375,27 +408,24 @@ Instructions:
 """
 
             user_content = []
-            # Add conversation history context
-            history_text = "\n".join([
-                f"{getattr(msg, 'role', 'unknown')}: {getattr(msg, 'content', '')}" 
-                for msg in history 
-                if isinstance(getattr(msg, 'content', None), str)
-            ])
-            # Add current proactive comment count to the context sent to LLM
+            # Add context (history or placeholder) and task description
+            task_description = f"## Proactive Comment Context:\nThis will be proactive comment number {self.proactive_message_count + 1} (out of {self.max_proactive_messages}) since the last user interaction.\n\n## Your Task:\nBased on the context (history or lack thereof, comment number, and the potentially relevant screenshot below if provided), please provide a short, natural comment to break the silence, following the system prompt instructions."
+            
+            # Include placeholder or actual history
             user_content.append({
                 "type": "text", 
-                "text": f"## Recent Conversation History:\n{history_text}\n\n## Proactive Comment Context:\nThis will be proactive comment number {self.proactive_message_count + 1} (out of {self.max_proactive_messages}) since the last user interaction.\n\n## Your Task:\nBased on the history, the comment context (and the potentially relevant screenshot below), please provide a short, natural comment to break the silence, following the system prompt instructions."
+                "text": f"## Recent Conversation History:\n{history_text}\n\n{task_description}"
             })
 
-            # Add screenshot if vision is enabled
-            if screenshot_base64 and self.vision_enabled:
+            # Add screenshot to prompt content *if* decided above
+            if use_screenshot_in_prompt:
                 image_prompt = " Here is a screenshot of what the user is currently seeing:"
                 user_content[0]["text"] += image_prompt 
                 user_content.append(
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/png;base64,{screenshot_base64}",
+                            "url": f"data:image/png;base64,{screenshot_base64}", # screenshot_base64 is non-None here
                             "detail": "low", 
                         },
                     }
