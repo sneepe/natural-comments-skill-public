@@ -13,6 +13,12 @@ This skill for Wingman aims to make interactions feel more natural by having the
 *   **Forced Comment:** Allows manually triggering a comment attempt.
 *   **Custom System Prompt:** Allows overriding the default system prompt for advanced customization.
 
+## Functionality
+
+### ⚠️ Cost Warning ⚠️
+
+**If you provide your own API key for the underlying Wingman (e.g., OpenAI), enabling the `Enable Vision` setting may incur costs.** When vision is enabled, the skill periodically captures screenshots and sends them to the AI model for analysis during periods of silence (before the `Max Proactive Messages` limit is reached). This image analysis can be significantly more expensive than text-only interactions. Disable the `Enable Vision` setting if you want to avoid these potential vision-related costs.
+
 ## Configuration (`default_config.yaml`)
 
 The following settings can be adjusted in the skill's configuration:

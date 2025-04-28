@@ -7,6 +7,7 @@ import random # Added for randomization
 from typing import TYPE_CHECKING, Optional
 from mss import mss
 from PIL import Image
+import traceback # Add import here for safety, though ideally at top
 
 from api.enums import LogSource, LogType
 from api.interface import SettingsConfig, SkillConfig, WingmanInitializationError
@@ -78,12 +79,16 @@ class NaturalComments(Skill):
         if add_history is not None:
             self.add_comments_to_history = add_history
 
-        # Load custom prompt (optional)
+        # Load custom prompt (required)
         custom_prompt = self.retrieve_custom_property_value("custom_system_prompt", errors)
-        if custom_prompt is not None and isinstance(custom_prompt, str):
-             self.custom_system_prompt = custom_prompt 
-        elif custom_prompt is not None: 
-             errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Custom System Prompt must be a string."))
+        if custom_prompt is None:
+            errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="System Prompt is missing or not configured in the skill settings."))
+        elif not isinstance(custom_prompt, str):
+             errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="System Prompt must be a string."))
+        elif not custom_prompt.strip(): # Check if the string is empty or only whitespace
+             errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="System Prompt cannot be empty."))
+        else:
+             self.custom_system_prompt = custom_prompt # Store the valid prompt
 
         auto_start = self.retrieve_custom_property_value("auto_start", errors) # Added
         if auto_start is not None:
@@ -108,9 +113,10 @@ class NaturalComments(Skill):
              errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Enable Vision must be a boolean."))
         if not isinstance(self.add_comments_to_history, bool):
              errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Add Comments to History must be a boolean."))
-        if self.custom_system_prompt is not None and not isinstance(self.custom_system_prompt, str):
-            # This case should be caught above, but double-check
-             errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Custom System Prompt must be a string."))
+        # Validation for custom_system_prompt is now handled during retrieval above.
+        # if self.custom_system_prompt is not None and not isinstance(self.custom_system_prompt, str):
+        #    # This case should be caught above, but double-check
+        #     errors.append(WingmanInitializationError(wingman_name=self.wingman.name, message="Custom System Prompt must be a string."))
         # TODO: Add validation for display number range vs available monitors?
 
         return errors
@@ -123,17 +129,40 @@ class NaturalComments(Skill):
         self.last_known_message_count = 0 
         await self._set_new_silence_target()
 
-        if self.auto_start:
-            await self._start_monitoring()
+        # Initialize is_running based on auto_start
+        self.is_running = self.auto_start
+
+        # Always create the monitoring task
+        if not self._task or self._task.done():
+            self._task = asyncio.ensure_future(self._monitor_silence_and_screenshots())
+
+        if self.is_running:
+            await self.printr.print_async(f"{self.name} skill auto-started monitoring.", color=LogType.INFO)
+        # else: It's not auto-starting, task exists but is paused by is_running flag
 
     async def unload(self) -> None:
-        """Stop the background monitoring task and clean up screenshots."""
-        await self._stop_monitoring()
+        """Stop the background monitoring task, cancel it, and clean up screenshots."""
+        await self._stop_monitoring() # Set is_running to False first
+        
+        # Cancel the task if it exists and is not done
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                # Give the task a moment to process the cancellation
+                await asyncio.wait_for(self._task, timeout=1.0)
+            except asyncio.CancelledError:
+                await self.printr.print_async(f"{self.name}: Monitoring task successfully cancelled during unload.", color=LogType.INFO)
+            except asyncio.TimeoutError:
+                 await self.printr.print_async(f"{self.name}: Monitoring task did not cancel within timeout during unload.", color=LogType.WARNING)
+            except Exception as e:
+                 await self.printr.print_async(f"{self.name}: Error awaiting task cancellation during unload: {e}", color=LogType.WARNING)
+        self._task = None # Clear reference
+
         await self._cleanup_screenshots() # Separate cleanup logic
         
     # Added helper methods for start/stop to be used by tools
     async def _start_monitoring(self):
-        """Starts the monitoring task if not already running."""
+        """Sets the skill to active and resets state. Does not create the task."""
         if not self.is_running:
             self.is_running = True
             # Re-initialize state when starting manually
@@ -145,23 +174,28 @@ class NaturalComments(Skill):
             except AttributeError:
                  self.last_known_message_count = 0 # Fallback if messages not ready
             await self._set_new_silence_target()
-            self._task = asyncio.create_task(self._monitor_silence_and_screenshots())
+            # self._task = asyncio.ensure_future(self._monitor_silence_and_screenshots()) # Task creation moved to prepare
             # Ensure log is present
             await self.printr.print_async(f"{self.name} skill status: STARTED monitoring.", color=LogType.INFO)
             return True
-        return False # Already running
+        else:
+            await self.printr.print_async(f"{self.name} skill status: Already running.", color=LogType.INFO) # Log if already running
+            return False # Already running
 
     async def _stop_monitoring(self):
-        """Stops the monitoring task if running."""
+        """Sets the skill to inactive. Does not cancel the task."""
         if self.is_running:
             self.is_running = False # Set flag FIRST
-            if self._task:
-                self._task.cancel() # Request cancellation
-                self._task = None # Set to None immediately after requesting cancel
+            # if self._task: # Task cancellation moved to unload
+            #     self._task.cancel() # Request cancellation
+            #     self._task = None # Set to None immediately after requesting cancel
             # Ensure log is present
             await self.printr.print_async(f"{self.name} skill status: STOPPED monitoring.", color=LogType.INFO)
             return True
-        return False # Already stopped
+        else:
+            # Log if already stopped?
+            # await self.printr.print_async(f"{self.name} skill status: Already stopped.", color=LogType.INFO)
+            return False # Already stopped
 
     async def _cleanup_screenshots(self):
         """Deletes screenshot files."""
@@ -197,8 +231,14 @@ class NaturalComments(Skill):
 
     async def _monitor_silence_and_screenshots(self) -> None:
         """Background task checking for silence and potentially generating comments."""
-        while self.is_running:
+        while True: # Loop indefinitely, controlled by is_running flag and cancellation
             try:
+                # --- Check if skill is supposed to be running --- #
+                if not self.is_running:
+                    await asyncio.sleep(1) # Sleep briefly to avoid busy-waiting when paused
+                    continue # Skip the rest of the loop if not running
+
+                # --- If running, proceed with monitoring logic --- #
                 now = time.time()
 
                 # --- Check for new messages based on count and update state --- #
@@ -250,6 +290,17 @@ class NaturalComments(Skill):
 
                 screenshot_data = None # Reset for this cycle
 
+                # --- Debug Logging --- #
+                # Temporarily commented out to isolate the issue
+                if self.settings.debug_mode:
+                   await self.printr.print_async(
+                       f"{self.name} Loop Check: " 
+                       f"Silence={time_since_last_message:.1f}s / Target={self.current_silence_target:.1f}s, " 
+                       f"Count={self.proactive_message_count}/{self.max_proactive_messages}, " 
+                       f"NewMsgThisCycle={new_message_detected_this_cycle}", 
+                       color=LogType.INFO
+                   )
+
                 # --- Check Silence (against random target) & Proactive Limit --- #
                 if time_since_last_message >= self.current_silence_target:
                     if self.proactive_message_count < self.max_proactive_messages:
@@ -266,10 +317,12 @@ class NaturalComments(Skill):
                 await asyncio.sleep(5) # Check interval
 
             except asyncio.CancelledError:
-                await self.printr.print_async(f"{self.name}: Monitoring task cancelled.", color=LogType.INFO)
+                # await self.printr.print_async(f"{self.name}: Monitoring task cancelled.", color=LogType.INFO) # Original log
+                # Don't log cancellation here, let unload handle it if applicable
                 break # Exit loop cleanly
             except Exception as e:
-                await self.printr.print_async(f"{self.name}: Error in monitoring loop: {e}", color=LogType.ERROR)
+                traceback_str = traceback.format_exc()
+                await self.printr.print_async(f"{self.name}: Error in monitoring loop: {e}\nTraceback:\n{traceback_str}", color=LogType.ERROR)
                 await asyncio.sleep(30) # Wait longer after an error
 
     # --- Proactive Comment Generation --- #
