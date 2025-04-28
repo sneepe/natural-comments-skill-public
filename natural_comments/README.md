@@ -7,6 +7,7 @@ This skill for Wingman aims to make interactions feel more natural by having the
 *   **Proactive Comments:** Automatically generates comments or questions when the user has been silent for a random duration (between configurable minimum and maximum thresholds).
 *   **Conversation Focus:** Prioritizes continuing the existing conversation topic based on recent history.
 *   **Vision Capability (Optional):** Can take screenshots of the user's primary monitor to make comments more relevant to the current visual context (e.g., games, videos, coding). Uses a refined prompting strategy to avoid commenting on static screens unless necessary.
+*   **Narrator Mode (Optional):** Can generate comments based *only* on visual context (if vision is enabled) even if the user hasn't spoken yet, useful for narration during activities.
 *   **Configurable Behavior:** Allows customization of silence thresholds, maximum number of proactive comments between user interactions, and vision settings.
 *   **Manual Control:** Provides voice commands to turn the commenting behavior on or off.
 *   **Status Check:** Allows querying the current status (active/inactive) and silence timers.
@@ -30,6 +31,7 @@ The following settings can be adjusted in the skill's configuration:
 *   `vision_display_to_capture` (integer, default: 1): Which monitor display to capture (1 = primary, 2 = secondary, etc.).
 *   `add_comments_to_history` (boolean, default: True): Whether the proactive comments made by this skill should be added to the main conversation history.
 *   `auto_start` (boolean, default: True): Whether the skill should start monitoring for silence automatically when Wingman loads.
+*   `allow_comments_without_history` (boolean, default: False): Enables "Narrator Mode". If true, allows the skill to generate comments even when there is no prior conversation history (requires `vision_enabled` to be true as well, as it relies on screenshots in this mode).
 *   `custom_system_prompt` (string, optional, default: None): Allows providing a completely custom system prompt to guide the LLM's comment generation. If left blank, a refined default prompt focusing on natural conversation is used.
 
 ## Voice Commands (Tools)
